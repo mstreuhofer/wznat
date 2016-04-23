@@ -62,7 +62,7 @@ All*.
 
 ## Linux
 
-Install necessary software `iptables` and `dnsmasq`.
+Install necessary software `bridge-utils`, `iptables` and `dnsmasq`.
 
 Symlink like you never symlinked before:
 
@@ -88,7 +88,7 @@ iface wznat0 inet static
   address 172.16.0.1/16
 
 auto wznat1
-iface wznat0 inet static
+iface wznat1 inet static
   bridge_ports none
   bridge_fd 0
   bridge_maxwait 0

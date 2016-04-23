@@ -53,17 +53,9 @@ function setup_configd {
 function cleanup_configd {
 	setup_configd
 
-	touch "$CONFIGD_HOSTS"
+	echo "interface=$IF_LOCAL" > "$CONFIGD_IFACE_LOCAL"
+	echo "no-dhcp-interface=$IF_LOCAL" >> "$CONFIGD_IFACE_LOCAL"
 
-	if [[ "$OSTYPE" == "darwin"* ]]; then
-		sed -i '' "/$IFACE$/d" "$CONFIGD_HOSTS"
-		sed -i '' "/^$IF_ADDRESS/d" "$CONFIGD_HOSTS"
-	else
-		sed -i "/$IFACE$/d" "$CONFIGD_HOSTS"
-		sed -i "/^$IF_ADDRESS/d" "$CONFIGD_HOSTS"
-	fi
-
-	[ -f "$CONFIGD_IFACE_LOCAL" ] && rm "$CONFIGD_IFACE_LOCAL"
 	[ -f "$CONFIGD_IFACE" ] && rm "$CONFIGD_IFACE"
 	[ -f "$CONFIGD_PF" ] && rm "$CONFIGD_PF"
 
@@ -72,13 +64,23 @@ function cleanup_configd {
 		ifconfig "$CLEANUP_IFACE_NAME" >/dev/null 2>&1 && continue
 		rm "$CLEANUP_IFACE_FILE"
 	done
+
+	touch "$CONFIGD_HOSTS"
+
+	[[ "$IFACE" != "$IF_INTERNAL"* ]] && return
+	[ -z "$IF_ADDRESS" ] && return
+
+	if [[ "$OSTYPE" == "darwin"* ]]; then
+		sed -i '' "/^$IF_ADDRESS/d" "$CONFIGD_HOSTS"
+		sed -i '' "/-$IFACE-gw$/d" "$CONFIGD_HOSTS"
+	else
+		sed -i "/^$IF_ADDRESS/d" "$CONFIGD_HOSTS"
+		sed -i "/-$IFACE-gw$/d" "$CONFIGD_HOSTS"
+	fi
 }
 
 function generate_configd {
 	setup_configd
-
-	echo "interface=$IF_LOCAL" > "$CONFIGD_IFACE_LOCAL"
-	echo "no-dhcp-interface=$IF_LOCAL" >> "$CONFIGD_IFACE_LOCAL"
 
 	if [[ "$IFACE" != "$IF_INTERNAL"* ]]; then
 		echo "Ignoring interface \`$IFACE': does not match \`$IF_INTERNAL'." | logger -t "$0"
@@ -168,9 +170,9 @@ function osx_vbox_hostonlyif {
 
 					sudo -Hnu "$VBOX_USER" VBoxManage dhcpserver modify \
 						--ifname "$IFACE" --disable 2>&1 | logger -t "$0"
-				fi
 
-				generate_configd
+					generate_configd
+				fi
 
 				IFACE=""
 				IF_ADDRESS=""
@@ -180,8 +182,9 @@ function osx_vbox_hostonlyif {
 	done
 }
 
+cleanup_configd
+
 if [[ "$OSTYPE" == "darwin"* ]]; then
-	cleanup_configd
 	osx_vbox_hostonlyif
 
 	pfctl -f /etc/wznat/pf.conf -e 2>&1 | logger -t "$0"
@@ -189,11 +192,9 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
 	launchctl load /etc/wznat/dnsmasq.plist 2>&1 | logger -t "$0"
 	sysctl -w net.inet.ip.forwarding=1 2>&1 | logger -t "$0"
 else
-	cleanup_configd
-
 	[[ "$IFACE" != "$IF_INTERNAL"* ]] && exit 0
 
-	iptables -t nat -D POSTROUTING -o $IF_EXTERNAL -j MASQUERADE >/dev/null 2>&1
+	iptables -t nat -D POSTROUTING -s $IF_ADDRESS/$IF_NETMASK -o $IF_EXTERNAL -j MASQUERADE >/dev/null 2>&1
 	iptables -t mangle -D POSTROUTING -p udp --dport bootpc -o $IFACE -j CHECKSUM --checksum-fill >/dev/null 2>&1
 	service dnsmasq status >/dev/null 2>&1 && service dnsmasq restart
 
@@ -201,7 +202,7 @@ else
 
 	generate_configd
 
-	iptables -t nat -I POSTROUTING -o $IF_EXTERNAL -j MASQUERADE
+	iptables -t nat -I POSTROUTING -s $IF_ADDRESS/$IF_NETMASK -o $IF_EXTERNAL -j MASQUERADE
 	iptables -t mangle -I POSTROUTING -p udp --dport bootpc -o $IFACE -j CHECKSUM --checksum-fill
 	service dnsmasq status >/dev/null 2>&1 && service dnsmasq restart
 
