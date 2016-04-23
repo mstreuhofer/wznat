@@ -1,0 +1,5 @@
+#
+# DHCP-controlled statically assigned IP addresses
+# DHCP static range: x.x.0.2 - x.x.127.255
+#
+
